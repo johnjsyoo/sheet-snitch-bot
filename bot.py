@@ -6,10 +6,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Load environment variables
+# Load env variables from local .env or Railway
 load_dotenv()
 
-# Environment vars
+# Get environment variables
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
@@ -17,7 +17,7 @@ GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 if not GOOGLE_CREDS_JSON:
     raise Exception("GOOGLE_CREDS_JSON not found")
 
-# Authorize with Google Sheets
+# Authenticate with Google Sheets
 creds_dict = json.loads(GOOGLE_CREDS_JSON)
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -25,9 +25,9 @@ scope = [
 ]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
-sheet = client.open(GOOGLE_SHEET_NAME).sheet1  # or use .worksheet("TabName")
+sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# Command handler: /lookup <username>
+# /lookup <user> command — returns all matches
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = ' '.join(context.args).strip().lower()
 
@@ -36,18 +36,24 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     records = sheet.get_all_records()
+    matches = []
+
     for row in records:
-        if row["user"].strip().lower() == query:
+        user_value = row.get("user", "").strip().lower()
+        if user_value == query:
             last_login = row.get("last_login", "N/A")
             agent = row.get("agent", "N/A")
-            await update.message.reply_text(
-                f"User: {row['user']}\nLast login: {last_login}\nAgent: {agent}"
+            matches.append(
+                f"🧑 User: {row['user']}\n🕒 Last login: {last_login}\n🧭 Agent: {agent}"
             )
-            return
 
-    await update.message.reply_text("🚫 User not found.")
+    if not matches:
+        await update.message.reply_text("🚫 No matches found.")
+    else:
+        response = "\n\n".join(matches)
+        await update.message.reply_text(response)
 
-# Initialize bot
+# Set up the Telegram bot
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 app.add_handler(CommandHandler("lookup", lookup))
 

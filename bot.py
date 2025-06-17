@@ -17,11 +17,12 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
+AUTH_CODE = os.getenv("AUTH_CODE", "batman")  # Default code
 
 if not GOOGLE_CREDS_JSON:
     raise Exception("GOOGLE_CREDS_JSON not found")
 
-# Google Sheets authentication
+# Google Sheets auth
 creds_dict = json.loads(GOOGLE_CREDS_JSON)
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -31,11 +32,10 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# Auth system
-AUTH_CODE = "letmein123"  # replace this with your preferred code
+# Track authorized users
 AUTHORIZED_USERS = set()
 
-# Inline button layout
+# Inline main menu
 def main_menu():
     keyboard = [
         [
@@ -46,7 +46,7 @@ def main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# /start command
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📍 Welcome to SheetSnitchBot!", reply_markup=main_menu()
@@ -55,9 +55,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # /auth <code>
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    code = " ".join(context.args).strip()
+    code = " ".join(context.args).strip().lower()
+    expected = AUTH_CODE.strip().lower()
 
-    if code == AUTH_CODE:
+    if code == expected:
         AUTHORIZED_USERS.add(user_id)
         await update.message.reply_text("✅ Auth successful! You can now use /lookup.")
     else:
@@ -94,7 +95,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("\n\n".join(matches))
 
-# Button callbacks
+# Button click handler
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -106,7 +107,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "auth":
         await query.message.reply_text(
-            "🔐 To authenticate, type:\n`/auth <code>`", parse_mode="Markdown"
+            "🔐 To authenticate, type:\n`/auth batman`", parse_mode="Markdown"
         )
     elif data == "help":
         await query.message.reply_text(
@@ -117,7 +118,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# Set Telegram command menu (like BotFather)
+# Telegram command hints (BotFather-style)
 async def set_bot_commands(app):
     await app.bot.set_my_commands([
         BotCommand("start", "Show main menu"),
@@ -126,16 +127,16 @@ async def set_bot_commands(app):
         BotCommand("help", "Show help menu"),
     ])
 
-# Run bot
+# Build app
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Register command handlers
+# Register handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("auth", auth))
 app.add_handler(CommandHandler("lookup", lookup))
 app.add_handler(CallbackQueryHandler(menu_handler))
 
-# Register command menu setup
+# Run setup on boot
 app.post_init = set_bot_commands
 
 print("✅ Bot is running...")

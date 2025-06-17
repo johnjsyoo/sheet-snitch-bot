@@ -8,4 +8,6 @@ services:
         sync: false
       - key: GOOGLE_CREDS_JSON
         sync: false
+      - key: AUTH_CODE
+        sync: false
     dockerfilePath: Dockerfile

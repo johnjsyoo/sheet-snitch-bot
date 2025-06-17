@@ -6,10 +6,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# Load env variables from local .env or Railway
+# Load environment variables
 load_dotenv()
 
-# Get environment variables
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
@@ -17,7 +16,7 @@ GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 if not GOOGLE_CREDS_JSON:
     raise Exception("GOOGLE_CREDS_JSON not found")
 
-# Authenticate with Google Sheets
+# Google Sheets auth
 creds_dict = json.loads(GOOGLE_CREDS_JSON)
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -27,10 +26,27 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# /lookup <user> command — returns all matches
-async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = ' '.join(context.args).strip().lower()
+# Auth system
+AUTH_CODE = "batman"
+AUTHORIZED_USERS = set()
 
+async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    code = ' '.join(context.args).strip()
+
+    if code == AUTH_CODE:
+        AUTHORIZED_USERS.add(user_id)
+        await update.message.reply_text("✅ Auth successful! You can now use /lookup.")
+    else:
+        await update.message.reply_text("❌ Invalid code. Try again.")
+
+async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in AUTHORIZED_USERS:
+        await update.message.reply_text("🚫 You are not authorized. Use /auth <code> to gain access.")
+        return
+
+    query = ' '.join(context.args).strip().lower()
     if not query:
         await update.message.reply_text("Usage: /lookup <user>")
         return
@@ -39,8 +55,8 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     matches = []
 
     for row in records:
-        user_value = row.get("user", "").strip().lower()
-        if user_value == query:
+        user_val = row.get("user", "").strip().lower()
+        if user_val == query:
             last_login = row.get("last_login", "N/A")
             agent = row.get("agent", "N/A")
             matches.append(
@@ -50,11 +66,11 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not matches:
         await update.message.reply_text("🚫 No matches found.")
     else:
-        response = "\n\n".join(matches)
-        await update.message.reply_text(response)
+        await update.message.reply_text("\n\n".join(matches))
 
-# Set up the Telegram bot
+# Bot setup
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+app.add_handler(CommandHandler("auth", auth))
 app.add_handler(CommandHandler("lookup", lookup))
 
 print("✅ Bot running...")

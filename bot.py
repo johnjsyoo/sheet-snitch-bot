@@ -133,7 +133,12 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             details = "\n".join(f"{k}: {v}" for k, v in row.items())
             matches.append(f"🔹 Match:\n{details}")
 
-    await update.message.reply_text("\n\n".join(matches) if matches else "🚫 No matches found.")
+    if not matches:
+        await update.message.reply_text("🚫 No matches found.")
+    else:
+        response = "\n\n".join(matches)
+        for i in range(0, len(response), 4000):
+            await update.message.reply_text(response[i:i+4000])
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

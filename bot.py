@@ -161,12 +161,13 @@ async def set_bot_commands(app):
         BotCommand("help", "Show help menu"),
     ])
 
-app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("auth", auth))
-app.add_handler(CommandHandler("lookup", lookup))
-app.add_handler(CallbackQueryHandler(menu_handler))
-app.post_init = set_bot_commands
+if __name__ == "__main__":
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("auth", auth))
+    app.add_handler(CommandHandler("lookup", lookup))
+    app.add_handler(CallbackQueryHandler(menu_handler))
+    app.post_init = set_bot_commands
 
-print("\u2705 Bot is running...")
-app.run_polling()
+    print("\u2705 Bot is running...")
+    app.run_polling()

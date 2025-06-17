@@ -122,6 +122,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     is_full_name_query = len(query.split()) == 2
+    searched_by_password = False
 
     records = sheet.get_all_records()
     matches = []
@@ -131,16 +132,22 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         customer = str(row.get("customer", "")).strip().lower()
         password = str(row.get("password", "")).strip().lower()
 
+        matched_by = None
         if is_full_name_query and query == name:
-            matched = True
-        elif query in [customer, password]:
-            matched = True
-        else:
-            matched = False
+            matched_by = "name"
+        elif query == customer:
+            matched_by = "customer"
+        elif query == password:
+            matched_by = "password"
+            searched_by_password = True
 
-        if matched:
-            details = "\n".join(f"{k}: {v}" for k, v in row.items())
-            matches.append(f"🔹 Match:\n{details}")
+        if matched_by:
+            display_row = row.copy()
+            if matched_by != "password":
+                display_row["password"] = "••••••••"
+
+            details = "\n".join(f"{k}: {v}" for k, v in display_row.items())
+            matches.append(f"🔹 Match ({matched_by}):\n{details}")
 
     if not matches:
         await update.message.reply_text("🚫 No matches found.")
@@ -148,7 +155,6 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = "\n\n".join(matches)
         for i in range(0, len(response), 4000):
             await update.message.reply_text(response[i:i+4000])
-
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

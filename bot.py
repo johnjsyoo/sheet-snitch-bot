@@ -20,6 +20,7 @@ GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON  = os.getenv("GOOGLE_CREDS_JSON")
 AUTH_CODE          = os.getenv("AUTH_CODE")  # e.g. 'batman'
 
+# Ensure required env vars are set
 for name, val in [
     ("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN),
     ("GOOGLE_SHEET_NAME",  GOOGLE_SHEET_NAME),
@@ -29,7 +30,7 @@ for name, val in [
     if not val:
         raise Exception(f"{name} is not set")
 
-# Authenticate with Google Sheets
+# Google Sheets setup
 dict_creds = json.loads(GOOGLE_CREDS_JSON)
 scope      = [
     "https://spreadsheets.google.com/feeds",
@@ -55,19 +56,16 @@ def log_user_auth(user_id: int):
         auth_ws = ws.add_worksheet(title="auth_log", rows="100", cols="2")
         auth_ws.update("A1:B1", [["user_id", "last_login"]])
 
-    # Retrieve all auth_log records
     records = auth_ws.get_all_records()
     ids     = [str(r.get("user_id", "")).strip() for r in records]
 
     if uid in ids:
         # Update the existing row's timestamp
-        row_index = ids.index(uid) + 2  # account for header row
+        row_index = ids.index(uid) + 2  # header offset
         auth_ws.update(f"B{row_index}", now)
-        print(f"[AUTH] Updated last_login for {uid} at row {row_index}")
     else:
         # Append a new row
         auth_ws.append_row([uid, now])
-        print(f"[AUTH] Added new auth_log entry for {uid}")
 
     authorized_cache.add(uid)
 
@@ -75,24 +73,19 @@ def log_user_auth(user_id: int):
 def is_user_authorized(user_id: int) -> bool:
     uid = str(user_id)
     if uid in authorized_cache:
-        print(f"[AUTH] {uid} found in cache")
         return True
-
     try:
         auth_ws = client.open(GOOGLE_SHEET_NAME).worksheet("auth_log")
         records = auth_ws.get_all_records()
         ids     = [str(r.get("user_id", "")).strip() for r in records]
-        print(f"[AUTH] IDs in sheet: {ids}")
         if uid in ids:
             authorized_cache.add(uid)
-            print(f"[AUTH] {uid} loaded from sheet into cache")
             return True
     except gspread.exceptions.WorksheetNotFound:
-        print("[AUTH] auth_log sheet not found")
-
+        pass
     return False
 
-# Build main inline menu (prefills only lookup/auth)
+# Inline menu: prefill /lookup and /auth only
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
@@ -106,7 +99,8 @@ def main_menu() -> InlineKeyboardMarkup:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📍 Welcome to SheetSnitchBot!", reply_markup=main_menu())
 
-# /auth handler\ nasync def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# /auth handler
+async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code    = " ".join(context.args).strip().lower()
     expected= AUTH_CODE.strip().lower()
@@ -143,12 +137,9 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👤 User: {row['user']}\n⏰ Last login: {last}\n🌐 Agent: {agent}"
             )
 
-    if matches:
-        await update.message.reply_text("\n\n".join(matches))
-    else:
-        await update.message.reply_text("🚫 No matches found.")
+    await update.message.reply_text("\n\n".join(matches) if matches else "🚫 No matches found.")
 
-# Inline callback for Help button
+# Help button callback
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -170,7 +161,7 @@ async def set_bot_commands(app):
         BotCommand("help",   "Show help menu"),
     ])
 
-# Prevent duplicate polling sessions
+# Polling guard to prevent duplicate sessions
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start",   start))

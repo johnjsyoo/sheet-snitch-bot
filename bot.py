@@ -44,6 +44,18 @@ sheet  = client.open(GOOGLE_SHEET_NAME).sheet1
 # In-memory cache for quick auth checks
 authorized_cache = set()
 
+# Preload auth cache from sheet on startup
+try:
+    auth_ws = client.open(GOOGLE_SHEET_NAME).worksheet("auth_log")
+    for rec in auth_ws.get_all_records():
+        uid = str(rec.get("user_id", "")).strip()
+        if uid:
+            authorized_cache.add(uid)
+    print(f"[AUTH] Preloaded {len(authorized_cache)} users into cache")
+except gspread.exceptions.WorksheetNotFound:
+    # No auth_log yet
+    print("[AUTH] No auth_log sheet found on startup")
+
 # Log or update auth in the 'auth_log' sheet
 def log_user_auth(user_id: int):
     ws  = client.open(GOOGLE_SHEET_NAME)
@@ -68,8 +80,9 @@ def log_user_auth(user_id: int):
         auth_ws.append_row([uid, now])
 
     authorized_cache.add(uid)
+    print(f"[AUTH] Auth logged for {uid}")
 
-# Check auth: memory first, then sheet
+# Check auth: cache first, then sheet fallback
 def is_user_authorized(user_id: int) -> bool:
     uid = str(user_id)
     if uid in authorized_cache:
@@ -85,21 +98,20 @@ def is_user_authorized(user_id: int) -> bool:
         pass
     return False
 
-# Inline menu: prefill /lookup and /auth only
+# Inline menu: use callbacks only (no prefill)
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔍 Lookup",       switch_inline_query_current_chat="/lookup "),
-            InlineKeyboardButton("🔓 Authenticate", switch_inline_query_current_chat="/auth "),
+            InlineKeyboardButton("🔍 Lookup",       callback_data="lookup"),
+            InlineKeyboardButton("🔓 Authenticate", callback_data="auth"),
         ],
         [InlineKeyboardButton("ℹ️ Help", callback_data="help")],
     ])
 
-# /start handler
+# Command handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📍 Welcome to SheetSnitchBot!", reply_markup=main_menu())
 
-# /auth handler
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code    = " ".join(context.args).strip().lower()
@@ -111,11 +123,10 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_user_authorized(user_id):
             await update.message.reply_text("✅ Auth successful! You can now use /lookup.")
         else:
-            await update.message.reply_text("⚠️ Auth recorded; retry lookup in a moment.")
+            await update.message.reply_text("⚠️ Please retry /lookup in a moment.")
     else:
         await update.message.reply_text("❌ Invalid code. Try again.")
 
-# /lookup handler
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_user_authorized(user_id):
@@ -130,7 +141,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
     matches = []
     for row in records:
-        if row.get("user","").strip().lower() == query:
+        if row.get("user", "").strip().lower() == query:
             last  = row.get("last_login", "N/A")
             agent = row.get("agent",      "N/A")
             matches.append(
@@ -139,16 +150,20 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("\n\n".join(matches) if matches else "🚫 No matches found.")
 
-# Help button callback
+# Callback handler for inline menu
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    if q.data == "help":
+    if q.data == "auth":
+        await q.message.reply_text("🔐 Authenticate by sending: /auth <code>")
+    elif q.data == "lookup":
+        await q.message.reply_text("🔍 Lookup by sending: /lookup <user>")
+    elif q.data == "help":
         await q.message.reply_text(
             "ℹ️ *Help Menu*\n\n"
             "`/auth <code>` – Authenticate\n"
             "`/lookup <user>` – Lookup data\n"
-            "`/start` – Show menu",
+            "`/start` – Show this menu",
             parse_mode="Markdown"
         )
 

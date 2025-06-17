@@ -15,62 +15,69 @@ from telegram.ext import (
 
 # Load and validate environment variables
 load_dotenv()
-
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-GOOGLE_SHEET_NAME   = os.getenv("GOOGLE_SHEET_NAME")
-GOOGLE_CREDS_JSON   = os.getenv("GOOGLE_CREDS_JSON")
-AUTH_CODE           = os.getenv("AUTH_CODE")  # your secret code
+GOOGLE_SHEET_NAME  = os.getenv("GOOGLE_SHEET_NAME")
+GOOGLE_CREDS_JSON  = os.getenv("GOOGLE_CREDS_JSON")
+AUTH_CODE          = os.getenv("AUTH_CODE")  # e.g. 'batman'
 
-# Ensure required env vars are set
-for var, val in [
+for name, val in [
     ("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN),
-    ("GOOGLE_SHEET_NAME",   GOOGLE_SHEET_NAME),
-    ("GOOGLE_CREDS_JSON",   GOOGLE_CREDS_JSON),
-    ("AUTH_CODE",           AUTH_CODE),
+    ("GOOGLE_SHEET_NAME",  GOOGLE_SHEET_NAME),
+    ("GOOGLE_CREDS_JSON",  GOOGLE_CREDS_JSON),
+    ("AUTH_CODE",          AUTH_CODE),
 ]:
     if not val:
-        raise Exception(f"{var} is not set")
+        raise Exception(f"{name} is not set")
 
-# Google Sheets setup
+# Authenticate with Google Sheets
 dict_creds = json.loads(GOOGLE_CREDS_JSON)
-scope = [
+scope      = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive",
 ]
 creds  = ServiceAccountCredentials.from_json_keyfile_dict(dict_creds, scope)
 client = gspread.authorize(creds)
+# Main data sheet (user, last_login, agent)
 sheet  = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# In-memory cache for instant auth
+# In-memory cache for quick auth checks
 authorized_cache = set()
 
-# Persistent auth_log: one row per user, update last_login
+# Log or update auth in the 'auth_log' sheet
 def log_user_auth(user_id: int):
-    ws     = client.open(GOOGLE_SHEET_NAME)
-    now    = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    uid    = str(user_id)
+    ws  = client.open(GOOGLE_SHEET_NAME)
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    uid = str(user_id)
+
     try:
         auth_ws = ws.worksheet("auth_log")
     except gspread.exceptions.WorksheetNotFound:
         auth_ws = ws.add_worksheet(title="auth_log", rows="100", cols="2")
         auth_ws.update("A1:B1", [["user_id", "last_login"]])
-    # Use get_all_records for robustness
+
+    # Retrieve all auth_log records
     records = auth_ws.get_all_records()
     ids     = [str(r.get("user_id", "")).strip() for r in records]
+
     if uid in ids:
-        # find the row index (1-based + header)
-        row_index = ids.index(uid) + 2
+        # Update the existing row's timestamp
+        row_index = ids.index(uid) + 2  # account for header row
         auth_ws.update(f"B{row_index}", now)
+        print(f"[AUTH] Updated last_login for {uid} at row {row_index}")
     else:
+        # Append a new row
         auth_ws.append_row([uid, now])
+        print(f"[AUTH] Added new auth_log entry for {uid}")
+
     authorized_cache.add(uid)
 
-# Check auth: cache first, then sheet
+# Check auth: memory first, then sheet
 def is_user_authorized(user_id: int) -> bool:
     uid = str(user_id)
     if uid in authorized_cache:
         print(f"[AUTH] {uid} found in cache")
         return True
+
     try:
         auth_ws = client.open(GOOGLE_SHEET_NAME).worksheet("auth_log")
         records = auth_ws.get_all_records()
@@ -78,85 +85,83 @@ def is_user_authorized(user_id: int) -> bool:
         print(f"[AUTH] IDs in sheet: {ids}")
         if uid in ids:
             authorized_cache.add(uid)
-            print(f"[AUTH] {uid} added to cache from sheet")
+            print(f"[AUTH] {uid} loaded from sheet into cache")
             return True
     except gspread.exceptions.WorksheetNotFound:
         print("[AUTH] auth_log sheet not found")
+
     return False
 
-# Inline menu: prefill /lookup and /auth only
+# Build main inline menu (prefills only lookup/auth)
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton(
-                "🔍 Lookup", switch_inline_query_current_chat="/lookup "
-            ),
-            InlineKeyboardButton(
-                "🔓 Authenticate", switch_inline_query_current_chat="/auth "
-            ),
+            InlineKeyboardButton("🔍 Lookup",       switch_inline_query_current_chat="/lookup "),
+            InlineKeyboardButton("🔓 Authenticate", switch_inline_query_current_chat="/auth "),
         ],
         [InlineKeyboardButton("ℹ️ Help", callback_data="help")],
     ])
 
-# Handlers
+# /start handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📍 Welcome to SheetSnitchBot!", reply_markup=main_menu())
 
-async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# /auth handler\ nasync def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code    = " ".join(context.args).strip().lower()
     expected= AUTH_CODE.strip().lower()
+
     if code == expected:
         log_user_auth(user_id)
-        await asyncio.sleep(1.5)  # allow sheet write to propagate
+        await asyncio.sleep(1.5)  # wait for sheet sync
         if is_user_authorized(user_id):
-            await update.message.reply_text(
-                "✅ Auth successful! You can now use /lookup."
-            )
+            await update.message.reply_text("✅ Auth successful! You can now use /lookup.")
         else:
-            await update.message.reply_text(
-                "⚠️ Please wait a moment and retry lookup."
-            )
+            await update.message.reply_text("⚠️ Auth recorded; retry lookup in a moment.")
     else:
         await update.message.reply_text("❌ Invalid code. Try again.")
 
+# /lookup handler
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_user_authorized(user_id):
-        await update.message.reply_text(
-            "🚫 You are not authorized. Use /auth <code> to gain access."
-        )
+        await update.message.reply_text("🚫 You are not authorized. Use /auth <code> to gain access.")
         return
+
     query = " ".join(context.args).strip().lower()
     if not query:
         await update.message.reply_text("Usage: /lookup <user>")
         return
+
     records = sheet.get_all_records()
     matches = []
     for row in records:
-        if row.get("user", "").strip().lower() == query:
+        if row.get("user","").strip().lower() == query:
             last  = row.get("last_login", "N/A")
-            agent = row.get("agent", "N/A")
+            agent = row.get("agent",      "N/A")
             matches.append(
                 f"👤 User: {row['user']}\n⏰ Last login: {last}\n🌐 Agent: {agent}"
             )
-    if not matches:
-        await update.message.reply_text("🚫 No matches found.")
-    else:
-        await update.message.reply_text("\n\n".join(matches))
 
+    if matches:
+        await update.message.reply_text("\n\n".join(matches))
+    else:
+        await update.message.reply_text("🚫 No matches found.")
+
+# Inline callback for Help button
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == "help":
-        await query.message.reply_text(
+    q = update.callback_query
+    await q.answer()
+    if q.data == "help":
+        await q.message.reply_text(
             "ℹ️ *Help Menu*\n\n"
-            "`/auth <code>` – Authenticate to use this bot\n"
-            "`/lookup <user>` – Search the data\n"
-            "`/start` – Show this menu",
+            "`/auth <code>` – Authenticate\n"
+            "`/lookup <user>` – Lookup data\n"
+            "`/start` – Show menu",
             parse_mode="Markdown"
         )
 
+# Register slash-commands in the Telegram UI
 async def set_bot_commands(app):
     await app.bot.set_my_commands([
         BotCommand("start",  "Show main menu"),
@@ -165,14 +170,13 @@ async def set_bot_commands(app):
         BotCommand("help",   "Show help menu"),
     ])
 
-# Polling guard to prevent duplicate instances
+# Prevent duplicate polling sessions
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start",   start))
     app.add_handler(CommandHandler("auth",    auth))
     app.add_handler(CommandHandler("lookup",  lookup))
     app.add_handler(CallbackQueryHandler(menu_handler))
-    # no CommandHandler for help; only callback
     app.post_init = set_bot_commands
 
     print("✅ Bot is running...")

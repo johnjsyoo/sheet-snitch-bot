@@ -101,23 +101,33 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     role    = get_user_role(user_id)
     if not role:
-        return await update.message.reply_text("🚫 You are not authorized. Use /auth <code>.")
+        await update.message.reply_text("🚫 You are not authorized. Use /auth <code>.")
+        return
 
     query = " ".join(context.args).strip().lower()
     if not query:
-        return await update.message.reply_text("Usage: /lookup <value>")
+        await update.message.reply_text("Usage: /lookup <value>")
+        return
 
     records = sheet.get_all_records()
     matches = []
+
     for row in records:
-        name     = str(row.get("name","")).strip().lower()
-        customer = str(row.get("customer","")).strip().lower()
-        password = str(row.get("password","")).strip().lower()
+        agent    = str(row.get("agent", "")).strip()
+        name     = str(row.get("name", "")).strip().lower()
+        customer = str(row.get("customer", "")).strip().lower()
+        password = str(row.get("password", "")).strip().lower()
+
+        # Exact‐match on name, customer, or password
         if query in (name, customer, password):
-            display_pw = row.get("password","")
+            # Mask password for non‐admins unless they searched by password
+            display_pw = row.get("password", "")
             if role != "admin" and query != password:
                 display_pw = "••••••••"
+
             matches.append(
+                "🔹 Match:\n"
+                f"🔎 Agent: {agent}\n"
                 f"👤 Name: {row.get('name','')}\n"
                 f"🆔 Customer: {row.get('customer','')}\n"
                 f"🔑 Password: {display_pw}\n"
@@ -127,9 +137,12 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
     if not matches:
-        return await update.message.reply_text("🚫 No matches found.")
+        await update.message.reply_text("🚫 No matches found.")
+        return
+
+    # Telegram has a 4096‐char limit per message
     text = "\n\n".join(matches)
-    for chunk in [text[i:i+4000] for i in range(0, len(text), 4000)]:
+    for chunk in [text[i : i + 4000] for i in range(0, len(text), 4000)]:
         await update.message.reply_text(chunk)
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

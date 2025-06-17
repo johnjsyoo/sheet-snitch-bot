@@ -1,4 +1,3 @@
-```python
 import os
 import json
 import gspread
@@ -22,6 +21,7 @@ GOOGLE_SHEET_NAME   = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON   = os.getenv("GOOGLE_CREDS_JSON")
 AUTH_CODE           = os.getenv("AUTH_CODE")  # your secret code, e.g. 'batman'
 
+# Ensure all required env vars are set
 for var, val in [
     ("TELEGRAM_BOT_TOKEN", TELEGRAM_BOT_TOKEN),
     ("GOOGLE_SHEET_NAME",   GOOGLE_SHEET_NAME),
@@ -31,7 +31,7 @@ for var, val in [
     if not val:
         raise Exception(f"{var} is not set")
 
-# Google Sheets setup
+# Google Sheets authentication setup
 dict_creds = json.loads(GOOGLE_CREDS_JSON)
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -41,10 +41,10 @@ creds  = ServiceAccountCredentials.from_json_keyfile_dict(dict_creds, scope)
 client = gspread.authorize(creds)
 sheet  = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# In-memory cache for instant auth
+# In-memory auth cache
 authorized_cache = set()
 
-# Persistent auth_log: one row per user, update last_login
+# Append/update auth_log worksheet in Google Sheets
 def log_user_auth(user_id: int):
     ws  = client.open(GOOGLE_SHEET_NAME)
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -67,17 +67,15 @@ def log_user_auth(user_id: int):
 
     authorized_cache.add(uid)
 
-# Check auth with debug logs
+# Check if user_id is authorized
 def is_user_authorized(user_id: int) -> bool:
     uid = str(user_id)
-    # 1) Instant in-memory cache
     if uid in authorized_cache:
         print(f"[AUTH] {uid} found in cache")
         return True
-    # 2) Fall back to Sheet
     try:
         auth_ws = client.open(GOOGLE_SHEET_NAME).worksheet("auth_log")
-        ids = [r[0].strip() for r in auth_ws.get_all_values()[1:] if r]
+        ids    = [r[0].strip() for r in auth_ws.get_all_values()[1:] if r]
         print(f"[AUTH] IDs in sheet: {ids}")
         if uid in ids:
             authorized_cache.add(uid)
@@ -87,7 +85,7 @@ def is_user_authorized(user_id: int) -> bool:
         print("[AUTH] auth_log sheet not found")
     return False
 
-# Inline menu with prefill for lookup/auth only
+# Inline menu: prefill only /lookup and /auth
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
@@ -105,9 +103,10 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code    = " ".join(context.args).strip().lower()
     expected= AUTH_CODE.strip().lower()
+
     if code == expected:
         log_user_auth(user_id)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.5)  # allow sheet write to propagate
         if is_user_authorized(user_id):
             await update.message.reply_text("✅ Auth successful! You can now use /lookup.")
         else:
@@ -118,25 +117,37 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_user_authorized(user_id):
-        await update.message.reply_text(
-            "🚫 You are not authorized. Use /auth <code> to gain access."
-        )
+        await update.message.reply_text("🚫 You are not authorized. Use /auth <code> to gain access.")
         return
+
     query = " ".join(context.args).strip().lower()
     if not query:
         await update.message.reply_text("Usage: /lookup <user>")
         return
+
     records = sheet.get_all_records()
-    matches = [f"👤 {r['user']} — {r.get('last_login','N/A')} ({r.get('agent','N/A')})" \
-               for r in records if r.get('user','').strip().lower()==query]
-    await update.message.reply_text("\n".join(matches) if matches else "🚫 No matches found.")
+    matches = []
+    for row in records:
+        if row.get("user", "").strip().lower() == query:
+            last  = row.get("last_login", "N/A")
+            agent = row.get("agent", "N/A")
+            matches.append(f"👤 User: {row['user']}\n⏰ Last login: {last}\n🌐 Agent: {agent}")
+
+    if not matches:
+        await update.message.reply_text("🚫 No matches found.")
+    else:
+        await update.message.reply_text("\n\n".join(matches))
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "help":
         await query.message.reply_text(
-            "*Help*\n/auth <code> to authenticate\n/lookup <user> to search", parse_mode="Markdown"
+            "ℹ️ *Help Menu*\n\n"
+            "`/auth <code>` – Authenticate to use this bot\n"
+            "`/lookup <user>` – Search the data\n"
+            "`/start` – Show this menu",
+            parse_mode="Markdown"
         )
 
 async def set_bot_commands(app):
@@ -147,14 +158,15 @@ async def set_bot_commands(app):
         BotCommand("help","Show help message"),
     ])
 
+# Polling guard
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("auth", auth))
+    app.add_handler(CommandHandler("start",  start))
+    app.add_handler(CommandHandler("auth",   auth))
     app.add_handler(CommandHandler("lookup", lookup))
-    app.add_handler(CommandHandler("help", menu_handler))
+    app.add_handler(CommandHandler("help",   menu_handler))
     app.add_handler(CallbackQueryHandler(menu_handler))
     app.post_init = set_bot_commands
+
     print("✅ Bot is running...")
     app.run_polling()
-```

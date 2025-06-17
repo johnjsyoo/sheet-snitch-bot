@@ -3,10 +3,15 @@ import json
 import gspread
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+)
 
-# Load environment variables
+# Load env vars
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -26,10 +31,26 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# Auth system
-AUTH_CODE = "batman"
+# Auth setup
+AUTH_CODE = "letmein123"  # You can change this
 AUTHORIZED_USERS = set()
 
+# 📍 Inline menu layout
+def main_menu():
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 Lookup", callback_data="lookup"),
+            InlineKeyboardButton("🔓 Authenticate", callback_data="auth"),
+        ],
+        [InlineKeyboardButton("ℹ️ Help", callback_data="help")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+# /start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("📍 Welcome to SheetSnitchBot!", reply_markup=main_menu())
+
+# /auth <code>
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code = ' '.join(context.args).strip()
@@ -40,38 +61,5 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Invalid code. Try again.")
 
-async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in AUTHORIZED_USERS:
-        await update.message.reply_text("🚫 You are not authorized. Use /auth <code> to gain access.")
-        return
-
-    query = ' '.join(context.args).strip().lower()
-    if not query:
-        await update.message.reply_text("Usage: /lookup <user>")
-        return
-
-    records = sheet.get_all_records()
-    matches = []
-
-    for row in records:
-        user_val = row.get("user", "").strip().lower()
-        if user_val == query:
-            last_login = row.get("last_login", "N/A")
-            agent = row.get("agent", "N/A")
-            matches.append(
-                f"🧑 User: {row['user']}\n🕒 Last login: {last_login}\n🧭 Agent: {agent}"
-            )
-
-    if not matches:
-        await update.message.reply_text("🚫 No matches found.")
-    else:
-        await update.message.reply_text("\n\n".join(matches))
-
-# Bot setup
-app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-app.add_handler(CommandHandler("auth", auth))
-app.add_handler(CommandHandler("lookup", lookup))
-
-print("✅ Bot running...")
-app.run_polling()
+# /lookup <user>
+async def lookup(update: Update, context: ContextTypes.DEFAULT

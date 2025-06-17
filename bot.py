@@ -172,15 +172,18 @@ async def preload_auth_log():
     except gspread.exceptions.WorksheetNotFound:
         print("[AUTH] No auth_log sheet found on preload")
 
+async def post_init(app):
+    await preload_auth_log()
+    await set_bot_commands(app)
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("auth", auth))
     app.add_handler(CommandHandler("lookup", lookup))
     app.add_handler(CallbackQueryHandler(menu_handler))
-    app.post_init = set_bot_commands
 
-    asyncio.run(preload_auth_log())
+    app.post_init = post_init
 
     print("✅ Bot is running...")
     app.run_polling()

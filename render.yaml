@@ -1,9 +1,6 @@
 services:
   - type: worker
     name: telegram-bot
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
@@ -11,3 +8,4 @@ services:
         sync: false
       - key: GOOGLE_CREDS_JSON
         sync: false
+    dockerfilePath: Dockerfile

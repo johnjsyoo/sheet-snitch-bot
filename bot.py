@@ -118,8 +118,10 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = " ".join(context.args).strip().lower()
     if not query:
-        await update.message.reply_text("Usage: /lookup <name|customer|password>")
+        await update.message.reply_text("Usage: /lookup <search term>")
         return
+
+    is_full_name_query = len(query.split()) == 2
 
     records = sheet.get_all_records()
     matches = []
@@ -129,7 +131,14 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         customer = str(row.get("customer", "")).strip().lower()
         password = str(row.get("password", "")).strip().lower()
 
-        if query in [name, customer, password]:
+        if is_full_name_query and query == name:
+            matched = True
+        elif query in [customer, password]:
+            matched = True
+        else:
+            matched = False
+
+        if matched:
             details = "\n".join(f"{k}: {v}" for k, v in row.items())
             matches.append(f"🔹 Match:\n{details}")
 
@@ -139,6 +148,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = "\n\n".join(matches)
         for i in range(0, len(response), 4000):
             await update.message.reply_text(response[i:i+4000])
+
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query

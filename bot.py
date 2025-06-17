@@ -17,12 +17,22 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
-AUTH_CODE = os.getenv("AUTH_CODE", "batman")  # Default code
+AUTH_CODE = os.getenv("AUTH_CODE")
+
+# Validate env vars
+if not TELEGRAM_BOT_TOKEN:
+    raise Exception("TELEGRAM_BOT_TOKEN is not set")
+
+if not GOOGLE_SHEET_NAME:
+    raise Exception("GOOGLE_SHEET_NAME is not set")
 
 if not GOOGLE_CREDS_JSON:
-    raise Exception("GOOGLE_CREDS_JSON not found")
+    raise Exception("GOOGLE_CREDS_JSON is not set")
 
-# Google Sheets auth
+if not AUTH_CODE:
+    raise Exception("AUTH_CODE is not set")
+
+# Google Sheets authentication
 creds_dict = json.loads(GOOGLE_CREDS_JSON)
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -107,7 +117,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     elif data == "auth":
         await query.message.reply_text(
-            "🔐 To authenticate, type:\n`/auth batman`", parse_mode="Markdown"
+            "🔐 To authenticate, type:\n`/auth <code>`", parse_mode="Markdown"
         )
     elif data == "help":
         await query.message.reply_text(
@@ -118,7 +128,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# Telegram command hints (BotFather-style)
+# BotFather-style command menu
 async def set_bot_commands(app):
     await app.bot.set_my_commands([
         BotCommand("start", "Show main menu"),
@@ -127,16 +137,13 @@ async def set_bot_commands(app):
         BotCommand("help", "Show help menu"),
     ])
 
-# Build app
+# Build and run the bot
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Register handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("auth", auth))
 app.add_handler(CommandHandler("lookup", lookup))
 app.add_handler(CallbackQueryHandler(menu_handler))
-
-# Run setup on boot
 app.post_init = set_bot_commands
 
 print("✅ Bot is running...")

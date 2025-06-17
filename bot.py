@@ -31,11 +31,11 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# Auth code and storage
-AUTH_CODE = "letmein123"  # Replace with your desired code
+# Auth code and authorized users
+AUTH_CODE = "letmein123"  # Replace with your own secret
 AUTHORIZED_USERS = set()
 
-# Inline button menu
+# Inline keyboard menu
 def main_menu():
     keyboard = [
         [
@@ -48,12 +48,14 @@ def main_menu():
 
 # /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📍 Welcome to SheetSnitchBot!", reply_markup=main_menu())
+    await update.message.reply_text(
+        "📍 Welcome to SheetSnitchBot!", reply_markup=main_menu()
+    )
 
 # /auth command
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    code = ' '.join(context.args).strip()
+    code = " ".join(context.args).strip()
 
     if code == AUTH_CODE:
         AUTHORIZED_USERS.add(user_id)
@@ -65,10 +67,12 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
-        await update.message.reply_text("🚫 You are not authorized. Use /auth <code> to gain access.")
+        await update.message.reply_text(
+            "🚫 You are not authorized. Use /auth <code> to gain access."
+        )
         return
 
-    query = ' '.join(context.args).strip().lower()
+    query = " ".join(context.args).strip().lower()
     if not query:
         await update.message.reply_text("Usage: /lookup <user>")
         return
@@ -90,16 +94,20 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("\n\n".join(matches))
 
-# Menu button handler
+# Callback for menu button presses
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
 
     if data == "lookup":
-        await query.message.reply_text("🔍 To look up a user, type:\n`/lookup <username>`", parse_mode="Markdown")
+        await query.message.reply_text(
+            "🔍 To look up a user, type:\n`/lookup <username>`", parse_mode="Markdown"
+        )
     elif data == "auth":
-        await query.message.reply_text("🔐 To authenticate, type:\n`/auth <code>`", parse_mode="Markdown")
+        await query.message.reply_text(
+            "🔐 To authenticate, type:\n`/auth <code>`", parse_mode="Markdown"
+        )
     elif data == "help":
         await query.message.reply_text(
             "ℹ️ *Help Menu*\n\n"
@@ -109,12 +117,14 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# Initialize bot
+# Build the bot
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+
+# Register handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("auth", auth))
 app.add_handler(CommandHandler("lookup", lookup))
 app.add_handler(CallbackQueryHandler(menu_handler))
 
-print("✅ Bot running...")
+print("✅ Bot is running...")
 app.run_polling()

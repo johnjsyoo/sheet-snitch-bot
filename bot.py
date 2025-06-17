@@ -130,7 +130,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     records = sheet.get_all_records()
     matches = []
     for row in records:
-        if row.get("user", "").strip().lower() == query:
+        if str(row.get("user", "")).strip().lower() == query:
             last = row.get("last_login", "N/A")
             agent = row.get("agent", "N/A")
             matches.append(

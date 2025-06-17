@@ -3,7 +3,7 @@ import json
 import gspread
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -31,11 +31,11 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# Auth code and authorized users
-AUTH_CODE = "letmein123"  # Replace with your own secret
+# Auth system
+AUTH_CODE = "letmein123"  # replace this with your preferred code
 AUTHORIZED_USERS = set()
 
-# Inline keyboard menu
+# Inline button layout
 def main_menu():
     keyboard = [
         [
@@ -52,7 +52,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📍 Welcome to SheetSnitchBot!", reply_markup=main_menu()
     )
 
-# /auth command
+# /auth <code>
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     code = " ".join(context.args).strip()
@@ -63,7 +63,7 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ Invalid code. Try again.")
 
-# /lookup command
+# /lookup <username>
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in AUTHORIZED_USERS:
@@ -94,7 +94,7 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("\n\n".join(matches))
 
-# Callback for menu button presses
+# Button callbacks
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -117,14 +117,26 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-# Build the bot
+# Set Telegram command menu (like BotFather)
+async def set_bot_commands(app):
+    await app.bot.set_my_commands([
+        BotCommand("start", "Show main menu"),
+        BotCommand("auth", "Authenticate with access code"),
+        BotCommand("lookup", "Search user data"),
+        BotCommand("help", "Show help menu"),
+    ])
+
+# Run bot
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-# Register handlers
+# Register command handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("auth", auth))
 app.add_handler(CommandHandler("lookup", lookup))
 app.add_handler(CallbackQueryHandler(menu_handler))
+
+# Register command menu setup
+app.post_init = set_bot_commands
 
 print("✅ Bot is running...")
 app.run_polling()

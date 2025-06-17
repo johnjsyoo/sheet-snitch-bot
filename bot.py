@@ -19,20 +19,17 @@ GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS_JSON")
 AUTH_CODE = os.getenv("AUTH_CODE")
 
-# Validate env vars
+# Validate environment
 if not TELEGRAM_BOT_TOKEN:
     raise Exception("TELEGRAM_BOT_TOKEN is not set")
-
 if not GOOGLE_SHEET_NAME:
     raise Exception("GOOGLE_SHEET_NAME is not set")
-
 if not GOOGLE_CREDS_JSON:
     raise Exception("GOOGLE_CREDS_JSON is not set")
-
 if not AUTH_CODE:
     raise Exception("AUTH_CODE is not set")
 
-# Google Sheets authentication
+# Google Sheets setup
 creds_dict = json.loads(GOOGLE_CREDS_JSON)
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -42,10 +39,24 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 sheet = client.open(GOOGLE_SHEET_NAME).sheet1
 
-# Track authorized users
-AUTHORIZED_USERS = set()
+# Auth log helpers
+def is_user_authorized(user_id):
+    try:
+        auth_sheet = client.open(GOOGLE_SHEET_NAME).worksheet("auth_log")
+        authorized_ids = [row[0] for row in auth_sheet.get_all_values()]
+        return str(user_id) in authorized_ids
+    except gspread.exceptions.WorksheetNotFound:
+        return False
 
-# Inline main menu
+def log_user_auth(user_id):
+    try:
+        auth_sheet = client.open(GOOGLE_SHEET_NAME).worksheet("auth_log")
+    except gspread.exceptions.WorksheetNotFound:
+        auth_sheet = client.open(GOOGLE_SHEET_NAME).add_worksheet(title="auth_log", rows="100", cols="1")
+        auth_sheet.append_row(["user_id"])
+    auth_sheet.append_row([str(user_id)])
+
+# Menu layout
 def main_menu():
     keyboard = [
         [
@@ -58,9 +69,7 @@ def main_menu():
 
 # /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📍 Welcome to SheetSnitchBot!", reply_markup=main_menu()
-    )
+    await update.message.reply_text("📍 Welcome to SheetSnitchBot!", reply_markup=main_menu())
 
 # /auth <code>
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -69,18 +78,16 @@ async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     expected = AUTH_CODE.strip().lower()
 
     if code == expected:
-        AUTHORIZED_USERS.add(user_id)
+        log_user_auth(user_id)
         await update.message.reply_text("✅ Auth successful! You can now use /lookup.")
     else:
         await update.message.reply_text("❌ Invalid code. Try again.")
 
-# /lookup <username>
+# /lookup <user>
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in AUTHORIZED_USERS:
-        await update.message.reply_text(
-            "🚫 You are not authorized. Use /auth <code> to gain access."
-        )
+    if not is_user_authorized(user_id):
+        await update.message.reply_text("🚫 You are not authorized. Use /auth <code> to gain access.")
         return
 
     query = " ".join(context.args).strip().lower()
@@ -105,30 +112,26 @@ async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("\n\n".join(matches))
 
-# Button click handler
+# Button handler
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
 
     if data == "lookup":
-        await query.message.reply_text(
-            "🔍 To look up a user, type:\n`/lookup <username>`", parse_mode="Markdown"
-        )
+        await query.message.reply_text("🔍 Type: `/lookup <username>`", parse_mode="Markdown")
     elif data == "auth":
-        await query.message.reply_text(
-            "🔐 To authenticate, type:\n`/auth <code>`", parse_mode="Markdown"
-        )
+        await query.message.reply_text("🔐 Type: `/auth <code>`", parse_mode="Markdown")
     elif data == "help":
         await query.message.reply_text(
             "ℹ️ *Help Menu*\n\n"
             "`/auth <code>` – Authenticate to use this bot\n"
             "`/lookup <user>` – Search the data\n"
-            "`/start` – Return to this menu",
+            "`/start` – Show this menu",
             parse_mode="Markdown"
         )
 
-# BotFather-style command menu
+# BotFather-style commands
 async def set_bot_commands(app):
     await app.bot.set_my_commands([
         BotCommand("start", "Show main menu"),
@@ -137,7 +140,7 @@ async def set_bot_commands(app):
         BotCommand("help", "Show help menu"),
     ])
 
-# Build and run the bot
+# Launch bot
 app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
